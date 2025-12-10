@@ -43,6 +43,47 @@ const buildFormData = (data: TranscriptionRequest, stream: boolean): FormData =>
   return formData;
 };
 
+export const fetchModels = async (config: ApiConfig): Promise<string[]> => {
+  try {
+    // In development: use relative URL (proxied through Vite)
+    // In production: use absolute URL if configured
+    const isProduction = import.meta.env.PROD;
+    const url = isProduction && config.baseUrl !== 'http://localhost:8000' 
+      ? `${normalizeUrl(config.baseUrl)}/v1/models`
+      : '/v1/models';
+    
+    // Add 10 second timeout to fetch
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: getHeaders(config),
+      signal: controller.signal,
+    });
+    
+    clearTimeout(timeoutId);
+    
+    if (!res.ok) {
+      console.error('Failed to fetch models:', res.status, res.statusText);
+      return [];
+    }
+    
+    const data = await res.json();
+    // Assuming the API returns { data: [{id: "model-name"}, ...] }
+    const models = data.data?.map((m: any) => m.id) || [];
+    
+    console.log('📦 Available models:', models.length, 'models fetched');
+    return models;
+  } catch (e: any) {
+    console.error('❌ Failed to fetch models:', {
+      message: e.message,
+      name: e.name,
+    });
+    return [];
+  }
+};
+
 export const checkConnection = async (config: ApiConfig): Promise<boolean> => {
   try {
     // In development: use relative URL (proxied through Vite)
@@ -164,7 +205,7 @@ const submitTranscriptionWithStream = async (
     return result;
   }
 
-  // Handle SSE stream
+  // Try to handle streaming, but fallback to JSON if server doesn't support SSE
   if (!res.body) {
     throw new Error('No response body');
   }
@@ -173,6 +214,8 @@ const submitTranscriptionWithStream = async (
   const decoder = new TextDecoder();
   let accumulatedText = '';
   let finalResult: TranscriptionResult = { text: '' };
+  let buffer = '';
+  let hasStreamData = false;
 
   try {
     while (true) {
@@ -180,10 +223,17 @@ const submitTranscriptionWithStream = async (
       if (done) break;
 
       const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split('\n');
+      buffer += chunk;
+      const lines = buffer.split('\n');
+      
+      // Keep the last incomplete line in buffer
+      buffer = lines[lines.length - 1];
 
-      for (const line of lines) {
+      for (let i = 0; i < lines.length - 1; i++) {
+        const line = lines[i];
+        
         if (line.startsWith('data: ')) {
+          hasStreamData = true;
           const data = line.slice(6);
           
           // Skip empty lines and [DONE] messages
@@ -221,13 +271,32 @@ const submitTranscriptionWithStream = async (
         }
       }
     }
+
+    // If no streaming data found, try to parse buffer as JSON (fallback for non-streaming responses)
+    if (!hasStreamData && buffer.trim()) {
+      try {
+        const result = JSON.parse(buffer);
+        console.log('✅ Transcription successful (non-streaming):', {
+          textLength: result.text?.length || 0,
+          language: result.language,
+        });
+        return result;
+      } catch (e) {
+        console.error('Failed to parse non-streaming response:', e, buffer);
+      }
+    }
   } finally {
     reader.releaseLock();
   }
 
+  // If we got no text from streaming, return what we have
+  if (!accumulatedText && !finalResult.text) {
+    console.warn('⚠️ No transcription text received');
+  }
+
   console.log('✅ Streaming transcription complete:', {
-    textLength: accumulatedText.length,
+    textLength: accumulatedText.length || finalResult.text?.length || 0,
   });
 
-  return finalResult;
+  return finalResult.text ? finalResult : { text: accumulatedText };
 };

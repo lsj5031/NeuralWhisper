@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ApiConfig, TranscriptionRequest, TranscriptionResult, StoredTask } from './types';
-import { submitTranscription, submitTranscriptionStream, checkConnection } from './services/apiService';
+import { submitTranscription, submitTranscriptionStream, checkConnection, fetchModels } from './services/apiService';
 import { CyberCard, SectionHeader } from './components/CyberUI';
 import { TranscriptionForm } from './components/TranscriptionForm';
 import { ResultModal } from './components/TaskList';
@@ -16,6 +16,7 @@ const DEFAULT_CONFIG: ApiConfig = {
 export default function App() {
   const [config, setConfig] = useState<ApiConfig>(DEFAULT_CONFIG);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
   
   const [loading, setLoading] = useState(false);
   const [viewResult, setViewResult] = useState<TranscriptionResult | null>(null);
@@ -35,6 +36,15 @@ export default function App() {
       }
     }
   }, []);
+
+  // Fetch available models when config changes
+  useEffect(() => {
+    const loadModels = async () => {
+      const models = await fetchModels(config);
+      setAvailableModels(models);
+    };
+    loadModels();
+  }, [config]);
 
   // Save tasks to localStorage whenever they change
   useEffect(() => {
@@ -157,10 +167,10 @@ export default function App() {
       {/* Main Content */}
       <main className="max-w-4xl mx-auto px-6 py-12 relative z-10">
          <section className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <SectionHeader title="Initiate Protocol" subtitle="Configure transcription parameters for neural processing." />
-            <CyberCard className="p-8">
-               <TranscriptionForm onSubmit={handleSubmit} isLoading={loading} />
-            </CyberCard>
+             <SectionHeader title="Initiate Protocol" subtitle="Configure transcription parameters for neural processing." />
+             <CyberCard className="p-8">
+                <TranscriptionForm onSubmit={handleSubmit} isLoading={loading} availableModels={availableModels} />
+             </CyberCard>
          </section>
 
          {/* Results Section */}

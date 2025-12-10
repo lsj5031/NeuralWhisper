@@ -9,9 +9,10 @@ interface TranscriptionFormProps {
   onSubmit: (data: TranscriptionRequest) => void;
   isLoading: boolean;
   autoStartAfterRecord?: boolean;
+  availableModels?: string[];
 }
 
-export const TranscriptionForm: React.FC<TranscriptionFormProps> = ({ onSubmit, isLoading, autoStartAfterRecord = true }) => {
+export const TranscriptionForm: React.FC<TranscriptionFormProps> = ({ onSubmit, isLoading, autoStartAfterRecord = true, availableModels = [] }) => {
   const [file, setFile] = useState<File | null>(null);
   const [fileName, setFileName] = useState('');
   const [task, setTask] = useState<'transcribe' | 'translate'>('transcribe');
@@ -241,33 +242,42 @@ export const TranscriptionForm: React.FC<TranscriptionFormProps> = ({ onSubmit, 
 
         {/* Model Selection */}
         <div className="col-span-1 md:col-span-2">
-          <CyberLabel htmlFor="model">Model (232 available)</CyberLabel>
+          <CyberLabel htmlFor="model">Model ({availableModels.length || '?'} available)</CyberLabel>
           <CyberSelect 
             id="model"
             value={model} 
             onChange={(e) => setModel(e.target.value)}
           >
-            <optgroup label="Popular (Systran)">
-              <option value="Systran/faster-distil-whisper-large-v3">Distil Whisper Large V3 (Fastest)</option>
-              <option value="Systran/faster-whisper-large-v3">Whisper Large V3 (Accurate)</option>
-              <option value="Systran/faster-whisper-large-v2">Whisper Large V2</option>
-              <option value="Systran/faster-whisper-medium">Whisper Medium</option>
-              <option value="Systran/faster-whisper-small">Whisper Small</option>
-              <option value="Systran/faster-whisper-base">Whisper Base</option>
-              <option value="Systran/faster-whisper-tiny">Whisper Tiny</option>
-            </optgroup>
-            <optgroup label="English-Only (Systran)">
-              <option value="Systran/faster-whisper-medium.en">Whisper Medium.en</option>
-              <option value="Systran/faster-whisper-small.en">Whisper Small.en</option>
-              <option value="Systran/faster-whisper-base.en">Whisper Base.en</option>
-              <option value="Systran/faster-whisper-tiny.en">Whisper Tiny.en</option>
-            </optgroup>
-            <optgroup label="Alternative Implementations">
-              <option value="deepdml/faster-whisper-large-v3-turbo-ct2">Large V3 Turbo (Deepdml)</option>
-              <option value="deepdml/faster-distil-whisper-large-v3.5">Distil V3.5 (Deepdml)</option>
-            </optgroup>
+            {availableModels.length > 0 ? (
+              availableModels.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))
+            ) : (
+              <>
+                <option value="" disabled>Loading models...</option>
+                <optgroup label="Popular (Systran) - Default">
+                  <option value="Systran/faster-distil-whisper-large-v3">Distil Whisper Large V3 (Fastest)</option>
+                  <option value="Systran/faster-whisper-large-v3">Whisper Large V3 (Accurate)</option>
+                  <option value="Systran/faster-whisper-large-v2">Whisper Large V2</option>
+                  <option value="Systran/faster-whisper-medium">Whisper Medium</option>
+                  <option value="Systran/faster-whisper-small">Whisper Small</option>
+                  <option value="Systran/faster-whisper-base">Whisper Base</option>
+                  <option value="Systran/faster-whisper-tiny">Whisper Tiny</option>
+                </optgroup>
+                <optgroup label="English-Only (Systran)">
+                  <option value="Systran/faster-whisper-medium.en">Whisper Medium.en</option>
+                  <option value="Systran/faster-whisper-small.en">Whisper Small.en</option>
+                  <option value="Systran/faster-whisper-base.en">Whisper Base.en</option>
+                  <option value="Systran/faster-whisper-tiny.en">Whisper Tiny.en</option>
+                </optgroup>
+                <optgroup label="Alternative Implementations">
+                  <option value="deepdml/faster-whisper-large-v3-turbo-ct2">Large V3 Turbo (Deepdml)</option>
+                  <option value="deepdml/faster-distil-whisper-large-v3.5">Distil V3.5 (Deepdml)</option>
+                </optgroup>
+              </>
+            )}
           </CyberSelect>
-          <p className="text-xs text-gray-500 mt-2">232 models available on server</p>
+          <p className="text-xs text-gray-500 mt-2">{availableModels.length > 0 ? `${availableModels.length} models available on server` : 'Connecting to server...'}</p>
         </div>
 
         {/* Temperature */}
