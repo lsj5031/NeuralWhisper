@@ -171,11 +171,18 @@ const submitTranscriptionWithStream = async (
     temperature: data.temperature,
   });
 
-  const res = await fetch(fullUrl, {
-    method: 'POST',
-    headers: getHeaders(config),
-    body: formData,
-  });
+  // 5 minute timeout for large file uploads
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 300000);
+
+  try {
+    const res = await fetch(fullUrl, {
+      method: 'POST',
+      headers: getHeaders(config),
+      body: formData,
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
 
   if (!res.ok) {
     let errorMsg = `HTTP ${res.status}: ${res.statusText}`;
@@ -301,4 +308,10 @@ const submitTranscriptionWithStream = async (
   });
 
   return finalResult.text ? finalResult : { text: accumulatedText };
+  } catch (e: any) {
+    if (e.name === 'AbortError') {
+      throw new Error('Upload timeout - request took too long. File may be too large or connection too slow.');
+    }
+    throw e;
+  }
 };
