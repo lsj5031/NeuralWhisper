@@ -215,6 +215,7 @@ const submitTranscriptionWithStream = async (
   let accumulatedText = '';
   let finalResult: TranscriptionResult = { text: '' };
   let buffer = '';
+  let fullResponse = '';
   let hasStreamData = false;
 
   try {
@@ -224,6 +225,7 @@ const submitTranscriptionWithStream = async (
 
       const chunk = decoder.decode(value, { stream: true });
       buffer += chunk;
+      fullResponse += chunk;
       const lines = buffer.split('\n');
       
       // Keep the last incomplete line in buffer
@@ -272,17 +274,17 @@ const submitTranscriptionWithStream = async (
       }
     }
 
-    // If no streaming data found, try to parse buffer as JSON (fallback for non-streaming responses)
-    if (!hasStreamData && buffer.trim()) {
+    // If no streaming data found, try to parse the full response as JSON (fallback for non-streaming responses)
+    if (!hasStreamData && fullResponse.trim()) {
       try {
-        const result = JSON.parse(buffer);
+        const result = JSON.parse(fullResponse);
         console.log('✅ Transcription successful (non-streaming):', {
           textLength: result.text?.length || 0,
           language: result.language,
         });
         return result;
       } catch (e) {
-        console.error('Failed to parse non-streaming response:', e, buffer);
+        console.error('Failed to parse non-streaming response:', e, fullResponse);
       }
     }
   } finally {
