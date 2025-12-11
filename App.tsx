@@ -21,7 +21,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [viewResult, setViewResult] = useState<TranscriptionResult | null>(null);
   const [notification, setNotification] = useState<{msg: string, type: 'success' | 'error'} | null>(null);
-  const [useStreaming] = useState(true); // Enable streaming by default
+  const [useStreaming] = useState(false); // Disable streaming (backend doesn't support it)
   const [tasks, setTasks] = useState<StoredTask[]>([]);
   const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
 

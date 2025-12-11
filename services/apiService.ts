@@ -171,11 +171,18 @@ const submitTranscriptionWithStream = async (
     temperature: data.temperature,
   });
 
-  const res = await fetch(fullUrl, {
-    method: 'POST',
-    headers: getHeaders(config),
-    body: formData,
-  });
+  // 5 minute timeout for large file uploads
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 300000);
+
+  try {
+    const res = await fetch(fullUrl, {
+      method: 'POST',
+      headers: getHeaders(config),
+      body: formData,
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
 
   if (!res.ok) {
     let errorMsg = `HTTP ${res.status}: ${res.statusText}`;
@@ -215,6 +222,7 @@ const submitTranscriptionWithStream = async (
   let accumulatedText = '';
   let finalResult: TranscriptionResult = { text: '' };
   let buffer = '';
+  let fullResponse = '';
   let hasStreamData = false;
 
   try {
@@ -224,6 +232,7 @@ const submitTranscriptionWithStream = async (
 
       const chunk = decoder.decode(value, { stream: true });
       buffer += chunk;
+      fullResponse += chunk;
       const lines = buffer.split('\n');
       
       // Keep the last incomplete line in buffer
@@ -272,17 +281,17 @@ const submitTranscriptionWithStream = async (
       }
     }
 
-    // If no streaming data found, try to parse buffer as JSON (fallback for non-streaming responses)
-    if (!hasStreamData && buffer.trim()) {
+    // If no streaming data found, try to parse the full response as JSON (fallback for non-streaming responses)
+    if (!hasStreamData && fullResponse.trim()) {
       try {
-        const result = JSON.parse(buffer);
+        const result = JSON.parse(fullResponse);
         console.log('✅ Transcription successful (non-streaming):', {
           textLength: result.text?.length || 0,
           language: result.language,
         });
         return result;
       } catch (e) {
-        console.error('Failed to parse non-streaming response:', e, buffer);
+        console.error('Failed to parse non-streaming response:', e, fullResponse);
       }
     }
   } finally {
@@ -299,4 +308,10 @@ const submitTranscriptionWithStream = async (
   });
 
   return finalResult.text ? finalResult : { text: accumulatedText };
+  } catch (e: any) {
+    if (e.name === 'AbortError') {
+      throw new Error('Upload timeout - request took too long. File may be too large or connection too slow.');
+    }
+    throw e;
+  }
 };
