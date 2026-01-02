@@ -1,4 +1,4 @@
-import { ApiConfig, TranscriptionRequest, TranscriptionResult, TranscriptionStreamCallback } from '../types';
+import { ApiConfig, TranscriptionRequest, TranscriptionResult, TranscriptionStreamCallback, RealtimeTranscriptionCallback } from '../types';
 
 const DEFAULT_MODEL = 'Systran/faster-distil-whisper-large-v3';
 
@@ -245,9 +245,23 @@ const submitTranscriptionWithStream = async (
           hasStreamData = true;
           const data = line.slice(6);
           
-          // Skip empty lines and [DONE] messages
-          if (!data || data === '[DONE]') continue;
+          // Skip empty lines
+          if (!data) continue;
+          
+          // Handle [DONE] marker
+          if (data === '[DONE]') {
+            console.log('📨 SSE stream complete');
+            continue;
+          }
+          
+          // Handle error messages
+          if (data.startsWith('[Error:')) {
+            const errorMsg = data.slice(8, -1); // Extract message from [Error: <message>]
+            console.error('❌ SSE Error:', errorMsg);
+            throw new Error(errorMsg);
+          }
 
+          // Try to parse as JSON first (for backwards compatibility)
           try {
             const parsed = JSON.parse(data);
             
@@ -269,13 +283,20 @@ const submitTranscriptionWithStream = async (
               // Call callback with partial result
               onChunk?.(finalResult);
               
-              console.log('📨 Stream chunk:', {
+              console.log('📨 Stream chunk (JSON):', {
                 textLength: accumulatedText.length,
                 language: parsed.language,
               });
             }
-          } catch (e) {
-            console.error('Failed to parse SSE chunk:', e, data);
+          } catch {
+            // Not JSON - treat as plain text chunk (per sse-api.md spec)
+            accumulatedText += data;
+            finalResult = { text: accumulatedText };
+            onChunk?.(finalResult);
+            
+            console.log('📨 Stream chunk (text):', {
+              textLength: accumulatedText.length,
+            });
           }
         }
       }
@@ -303,6 +324,15 @@ const submitTranscriptionWithStream = async (
     console.warn('⚠️ No transcription text received');
   }
 
+  // Clean up any trailing [DONE] markers from accumulated text
+  const cleanText = (text: string) => text.replace(/\[DONE\]\s*$/i, '').trim();
+  if (accumulatedText) {
+    accumulatedText = cleanText(accumulatedText);
+  }
+  if (finalResult.text) {
+    finalResult.text = cleanText(finalResult.text);
+  }
+
   console.log('✅ Streaming transcription complete:', {
     textLength: accumulatedText.length || finalResult.text?.length || 0,
   });
@@ -315,3 +345,133 @@ const submitTranscriptionWithStream = async (
     throw e;
   }
 };
+
+// WebSocket real-time transcription class
+export class RealtimeTranscriber {
+  private ws: WebSocket | null = null;
+  private audioContext: AudioContext | null = null;
+  private mediaStream: MediaStream | null = null;
+  private processor: ScriptProcessorNode | null = null;
+  private source: MediaStreamAudioSourceNode | null = null;
+  private onResult: RealtimeTranscriptionCallback | null = null;
+
+  async start(
+    config: ApiConfig,
+    onResult: RealtimeTranscriptionCallback,
+    language: string = 'auto'
+  ): Promise<void> {
+    this.onResult = onResult;
+
+    // Build WebSocket URL from config.baseUrl
+    // Convert http(s):// to ws(s):// 
+    const wsBaseUrl = config.baseUrl.replace(/^http/, 'ws');
+    const wsUrl = `${normalizeUrl(wsBaseUrl)}/v1/audio/transcriptions/stream?language=${language}`;
+
+    console.log('🎤 Connecting to WebSocket:', wsUrl);
+
+    // Connect WebSocket
+    this.ws = new WebSocket(wsUrl);
+
+    this.ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        this.onResult?.({
+          text: data.text || '',
+          final: data.final || false,
+          error: data.error,
+        });
+      } catch (e) {
+        console.error('Failed to parse WebSocket message:', e, event.data);
+      }
+    };
+
+    this.ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+      this.onResult?.({ text: '', final: true, error: 'WebSocket connection error' });
+    };
+
+    this.ws.onclose = () => {
+      console.log('🔌 WebSocket closed');
+      // Ensure we send a final callback when connection closes
+      this.onResult?.({ text: '', final: true });
+    };
+
+    // Wait for connection
+    await new Promise<void>((resolve, reject) => {
+      if (!this.ws) return reject(new Error('WebSocket not initialized'));
+      this.ws.onopen = () => {
+        console.log('✅ WebSocket connected');
+        resolve();
+      };
+      this.ws.onerror = () => reject(new Error('WebSocket connection failed'));
+    });
+
+    // Start audio capture at 16kHz
+    this.mediaStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        sampleRate: 16000,
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+      },
+    });
+
+    this.audioContext = new AudioContext({ sampleRate: 16000 });
+    this.source = this.audioContext.createMediaStreamSource(this.mediaStream);
+
+    // Process audio in chunks (~100ms at 16kHz = 1600 samples = 3200 bytes)
+    this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
+    this.processor.onaudioprocess = (e) => {
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        const float32 = e.inputBuffer.getChannelData(0);
+        const int16 = new Int16Array(float32.length);
+        for (let i = 0; i < float32.length; i++) {
+          int16[i] = Math.max(-32768, Math.min(32767, float32[i] * 32768));
+        }
+        this.ws.send(int16.buffer);
+      }
+    };
+
+    this.source.connect(this.processor);
+    this.processor.connect(this.audioContext.destination);
+
+    console.log('🎙️ Real-time transcription started');
+  }
+
+  stop(): void {
+    // Send stop signal
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ action: 'stop' }));
+    }
+
+    // Cleanup audio immediately to stop capturing
+    this.processor?.disconnect();
+    this.source?.disconnect();
+    this.mediaStream?.getTracks().forEach((t) => t.stop());
+    this.audioContext?.close();
+
+    this.processor = null;
+    this.source = null;
+    this.mediaStream = null;
+    this.audioContext = null;
+
+    // Close WebSocket after a delay to receive final result
+    // Also set a fallback to ensure we send final callback if server doesn't respond
+    const ws = this.ws;
+    const onResult = this.onResult;
+    
+    setTimeout(() => {
+      if (ws?.readyState === WebSocket.OPEN) {
+        // Server didn't send final result, send one ourselves
+        onResult?.({ text: '', final: true });
+        ws.close();
+      }
+    }, 2000);
+
+    console.log('🛑 Real-time transcription stopping, waiting for final result...');
+  }
+
+  isConnected(): boolean {
+    return this.ws?.readyState === WebSocket.OPEN;
+  }
+}

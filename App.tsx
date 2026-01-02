@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ApiConfig, TranscriptionRequest, TranscriptionResult, StoredTask } from './types';
-import { submitTranscription, submitTranscriptionStream, checkConnection, fetchModels } from './services/apiService';
+import { submitTranscription, submitTranscriptionStream, checkConnection, fetchModels, RealtimeTranscriber } from './services/apiService';
 import { CyberCard, SectionHeader } from './components/CyberUI';
 import { TranscriptionForm } from './components/TranscriptionForm';
 import { ResultModal } from './components/TaskList';
@@ -21,9 +21,14 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [viewResult, setViewResult] = useState<TranscriptionResult | null>(null);
   const [notification, setNotification] = useState<{msg: string, type: 'success' | 'error'} | null>(null);
-  const [useStreaming] = useState(false); // Disable streaming (backend doesn't support it)
+  const [useStreaming] = useState(true); // Enable SSE streaming for file uploads
   const [tasks, setTasks] = useState<StoredTask[]>([]);
   const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
+  
+  // Realtime transcription state
+  const [isRealtimeActive, setIsRealtimeActive] = useState(false);
+  const [realtimeText, setRealtimeText] = useState('');
+  const realtimeTranscriberRef = useRef<RealtimeTranscriber | null>(null);
 
   // Load tasks from localStorage on mount
   useEffect(() => {
@@ -69,6 +74,49 @@ export default function App() {
         localStorage.removeItem('whisper_api_key');
     }
     setConfig(newConfig);
+  };
+
+  const handleStartRealtime = async (language: string) => {
+    try {
+      // Don't clear realtimeText - keep previous results and append
+      setIsRealtimeActive(true);
+      
+      const transcriber = new RealtimeTranscriber();
+      realtimeTranscriberRef.current = transcriber;
+      
+      await transcriber.start(config, (result) => {
+        if (result.text) {
+          // Append new text to existing, with separator if there's existing text
+          setRealtimeText(prev => {
+            if (!prev) return result.text;
+            if (result.text === prev) return prev; // Avoid duplicates
+            // If the new text starts with the previous text, it's a replacement (cumulative)
+            if (result.text.startsWith(prev)) return result.text;
+            // Otherwise append with newline
+            return prev + '\n' + result.text;
+          });
+        }
+        if (result.final) {
+          setIsRealtimeActive(false);
+        }
+        if (result.error) {
+          setNotification({ msg: result.error, type: 'error' });
+          setIsRealtimeActive(false);
+        }
+      }, language);
+    } catch (e: any) {
+      setNotification({ msg: e.message || 'Failed to start live transcription', type: 'error' });
+      setIsRealtimeActive(false);
+    }
+  };
+
+  const handleStopRealtime = () => {
+    realtimeTranscriberRef.current?.stop();
+    // Don't set isRealtimeActive to false here - wait for the final result callback
+  };
+
+  const handleClearRealtime = () => {
+    setRealtimeText('');
   };
 
   const handleSubmit = async (req: TranscriptionRequest) => {
@@ -169,7 +217,16 @@ export default function App() {
          <section className="animate-in fade-in slide-in-from-bottom-4 duration-500">
              <SectionHeader title="Initiate Protocol" subtitle="Configure transcription parameters for neural processing." />
              <CyberCard className="p-8">
-                <TranscriptionForm onSubmit={handleSubmit} isLoading={loading} availableModels={availableModels} />
+                <TranscriptionForm 
+                  onSubmit={handleSubmit} 
+                  onStartRealtime={handleStartRealtime}
+                  onStopRealtime={handleStopRealtime}
+                  onClearRealtime={handleClearRealtime}
+                  isLoading={loading} 
+                  isRealtimeActive={isRealtimeActive}
+                  realtimeText={realtimeText}
+                  availableModels={availableModels} 
+                />
              </CyberCard>
          </section>
 
