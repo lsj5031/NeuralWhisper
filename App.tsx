@@ -28,6 +28,7 @@ export default function App() {
   // Realtime transcription state
   const [isRealtimeActive, setIsRealtimeActive] = useState(false);
   const [realtimeText, setRealtimeText] = useState('');
+  const [realtimeSessionText, setRealtimeSessionText] = useState(''); // Current session's text
   const realtimeTranscriberRef = useRef<RealtimeTranscriber | null>(null);
 
   // Load tasks from localStorage on mount
@@ -78,7 +79,9 @@ export default function App() {
 
   const handleStartRealtime = async (language: string) => {
     try {
-      // Don't clear realtimeText - keep previous results and append
+      // Store previous text and start fresh session
+      const previousText = realtimeText;
+      setRealtimeSessionText('');
       setIsRealtimeActive(true);
       
       const transcriber = new RealtimeTranscriber();
@@ -86,15 +89,10 @@ export default function App() {
       
       await transcriber.start(config, (result) => {
         if (result.text) {
-          // Append new text to existing, with separator if there's existing text
-          setRealtimeText(prev => {
-            if (!prev) return result.text;
-            if (result.text === prev) return prev; // Avoid duplicates
-            // If the new text starts with the previous text, it's a replacement (cumulative)
-            if (result.text.startsWith(prev)) return result.text;
-            // Otherwise append with newline
-            return prev + '\n' + result.text;
-          });
+          // Within a session, just replace with the latest cumulative text
+          setRealtimeSessionText(result.text);
+          // Update display: previous sessions + current session
+          setRealtimeText(previousText ? previousText + '\n' + result.text : result.text);
         }
         if (result.final) {
           setIsRealtimeActive(false);
@@ -117,6 +115,7 @@ export default function App() {
 
   const handleClearRealtime = () => {
     setRealtimeText('');
+    setRealtimeSessionText('');
   };
 
   const handleSubmit = async (req: TranscriptionRequest) => {

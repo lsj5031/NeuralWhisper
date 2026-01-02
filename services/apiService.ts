@@ -354,6 +354,10 @@ export class RealtimeTranscriber {
   private processor: ScriptProcessorNode | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
   private onResult: RealtimeTranscriptionCallback | null = null;
+  private silenceTimeout: number | null = null;
+  private lastAudioTime: number = 0;
+  private readonly SILENCE_THRESHOLD = 0.01; // Audio level below this is considered silence
+  private readonly AUTO_STOP_DELAY = 3000; // Auto-stop after 3 seconds of silence
 
   async start(
     config: ApiConfig,
@@ -421,9 +425,41 @@ export class RealtimeTranscriber {
 
     // Process audio in chunks (~100ms at 16kHz = 1600 samples = 3200 bytes)
     this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
+    this.lastAudioTime = Date.now();
+    
     this.processor.onaudioprocess = (e) => {
       if (this.ws?.readyState === WebSocket.OPEN) {
         const float32 = e.inputBuffer.getChannelData(0);
+        
+        // Calculate RMS (Root Mean Square) energy for better VAD
+        let sumSquares = 0;
+        for (let i = 0; i < float32.length; i++) {
+          sumSquares += float32[i] * float32[i];
+        }
+        const rms = Math.sqrt(sumSquares / float32.length);
+        
+        // RMS threshold needs to be lower than peak threshold
+        // Noise floor in logs was ~0.008 peak, likely ~0.003-0.005 RMS
+        // Speech was >0.01 peak. Let's set RMS threshold conservatively.
+        const RMS_THRESHOLD = 0.008; 
+        
+        if (rms > RMS_THRESHOLD) {
+          // Audio detected, reset silence timer
+          this.lastAudioTime = Date.now();
+          if (this.silenceTimeout) {
+            clearTimeout(this.silenceTimeout);
+            this.silenceTimeout = null;
+          }
+        } else {
+          // Silence detected, start auto-stop timer if not already running
+          if (!this.silenceTimeout) {
+            this.silenceTimeout = window.setTimeout(() => {
+              this.stop();
+            }, this.AUTO_STOP_DELAY);
+          }
+        }
+        
+        // Convert and send audio
         const int16 = new Int16Array(float32.length);
         for (let i = 0; i < float32.length; i++) {
           int16[i] = Math.max(-32768, Math.min(32767, float32[i] * 32768));
@@ -438,35 +474,57 @@ export class RealtimeTranscriber {
     console.log('🎙️ Real-time transcription started');
   }
 
-  stop(): void {
-    // Send stop signal
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ action: 'stop' }));
+  async stop(): Promise<void> {
+    // Clear silence timeout
+    if (this.silenceTimeout) {
+      clearTimeout(this.silenceTimeout);
+      this.silenceTimeout = null;
     }
-
-    // Cleanup audio immediately to stop capturing
+    
+    // Stop recording immediately so we don't send any more mic audio
     this.processor?.disconnect();
     this.source?.disconnect();
     this.mediaStream?.getTracks().forEach((t) => t.stop());
-    this.audioContext?.close();
+    
+    // Send silence padding to flush VAD buffer (1.0s worth of silence)
+    // We send this with delays to simulate real-time passage
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      console.log('🛑 Sending silence padding...');
+      const silenceChunk = new Int16Array(1600); // 100ms
+      
+      // Send 10 chunks (1 second) with 50ms delay between them (2x speed but enough to register)
+      for (let i = 0; i < 10; i++) {
+        if (this.ws.readyState !== WebSocket.OPEN) break;
+        this.ws.send(silenceChunk.buffer);
+        await new Promise(r => setTimeout(r, 50));
+      }
+      
+      // Send stop signal
+      if (this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ action: 'stop' }));
+      }
+    }
 
+    this.audioContext?.close();
     this.processor = null;
     this.source = null;
     this.mediaStream = null;
     this.audioContext = null;
 
     // Close WebSocket after a delay to receive final result
-    // Also set a fallback to ensure we send final callback if server doesn't respond
+    // We wait longer now because we sent padding and server needs to process it
+    // We don't manually close the WS unless it's stuck for a very long time (5s)
     const ws = this.ws;
     const onResult = this.onResult;
     
     setTimeout(() => {
       if (ws?.readyState === WebSocket.OPEN) {
+        console.warn('⚠️ Server took too long to close connection, forcing close');
         // Server didn't send final result, send one ourselves
         onResult?.({ text: '', final: true });
         ws.close();
       }
-    }, 2000);
+    }, 5000);
 
     console.log('🛑 Real-time transcription stopping, waiting for final result...');
   }
