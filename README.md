@@ -17,6 +17,8 @@ NeuralWhisper provides a modern, intuitive UI for transcribing audio files using
 - **Task History**: Full history of transcription jobs with results
 - **Configurable API**: Easy-to-configure backend API connection
 - **Modern UI**: Cyberpunk-themed interface with real-time feedback
+- **SEO Optimized**: Fully integrated meta tags, Open Graph support, and custom favicon
+- **High Performance**: Optimized with code splitting and lazy loading for faster initial load
 - **Export Options**: Copy transcription text directly to clipboard
 
 ## Getting Started
@@ -89,6 +91,7 @@ Settings are automatically saved to browser localStorage.
 ### Tech Stack
 
 - **Frontend**: React 18, TypeScript, Vite
+- **Performance**: React.lazy for code splitting, Suspense for progressive loading
 - **Styling**: Tailwind CSS with custom cyberpunk theme
 - **API Client**: Fetch API with streaming support
 - **Icons**: Lucide React
