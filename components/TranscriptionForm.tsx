@@ -1,18 +1,34 @@
 import React, { useState, useRef } from 'react';
 import { CyberButton, CyberLabel, CyberSelect, CyberCard } from './CyberUI';
-import { TranscriptionRequest } from '../types';
-import { UploadCloud, Zap, Mic, Square } from 'lucide-react';
+import { TranscriptionRequest, TranscriptionMode } from '../types';
+import { UploadCloud, Zap, Mic, Square, Radio } from 'lucide-react';
 
 const DEFAULT_MODEL = 'Systran/faster-distil-whisper-large-v3';
 
 interface TranscriptionFormProps {
   onSubmit: (data: TranscriptionRequest) => void;
+  onStartRealtime?: (language: string) => void;
+  onStopRealtime?: () => void;
+  onClearRealtime?: () => void;
   isLoading: boolean;
+  isRealtimeActive?: boolean;
+  realtimeText?: string;
   autoStartAfterRecord?: boolean;
   availableModels?: string[];
 }
 
-export const TranscriptionForm: React.FC<TranscriptionFormProps> = ({ onSubmit, isLoading, autoStartAfterRecord = true, availableModels = [] }) => {
+export const TranscriptionForm: React.FC<TranscriptionFormProps> = ({ 
+  onSubmit, 
+  onStartRealtime,
+  onStopRealtime,
+  onClearRealtime,
+  isLoading, 
+  isRealtimeActive = false,
+  realtimeText = '',
+  autoStartAfterRecord = true, 
+  availableModels = [] 
+}) => {
+  const [mode, setMode] = useState<TranscriptionMode>('file');
   const [file, setFile] = useState<File | null>(null);
   const [fileName, setFileName] = useState('');
   const [task, setTask] = useState<'transcribe' | 'translate'>('transcribe');
@@ -117,7 +133,37 @@ export const TranscriptionForm: React.FC<TranscriptionFormProps> = ({ onSubmit, 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* File Upload or Microphone */}
+        {/* Mode Selector */}
+        <div className="col-span-1 md:col-span-2">
+          <CyberLabel>Transcription Mode</CyberLabel>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setMode('file')}
+              className={`flex-1 p-3 border font-display uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${mode === 'file' ? 'border-cyber-cyan bg-cyber-cyan/10 text-cyber-cyan' : 'border-cyber-dim text-gray-600 hover:border-gray-500'}`}
+            >
+              <UploadCloud size={18} /> File Upload
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('record')}
+              className={`flex-1 p-3 border font-display uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${mode === 'record' ? 'border-cyber-cyan bg-cyber-cyan/10 text-cyber-cyan' : 'border-cyber-dim text-gray-600 hover:border-gray-500'}`}
+            >
+              <Mic size={18} /> Record
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('realtime')}
+              disabled={!onStartRealtime}
+              className={`flex-1 p-3 border font-display uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${mode === 'realtime' ? 'border-cyber-pink bg-cyber-pink/10 text-cyber-pink' : 'border-cyber-dim text-gray-600 hover:border-gray-500'} disabled:opacity-50 disabled:cursor-not-allowed`}
+            >
+              <Radio size={18} /> Live
+            </button>
+          </div>
+        </div>
+
+        {/* File Upload Section - shown for file mode */}
+        {mode === 'file' && (
            <div className="col-span-1 md:col-span-2">
              <CyberLabel htmlFor="audio-file">Audio Source</CyberLabel>
              
@@ -173,6 +219,101 @@ export const TranscriptionForm: React.FC<TranscriptionFormProps> = ({ onSubmit, 
              </div>
            </div>
            </div>
+        )}
+
+        {/* Record Mode Section */}
+        {mode === 'record' && (
+           <div className="col-span-1 md:col-span-2">
+             <CyberLabel>Record Audio</CyberLabel>
+             <div className="p-6 border border-cyber-dim rounded bg-cyber-panel">
+               <div className="flex items-center justify-center gap-6">
+                 <div className="text-center">
+                   <p className="font-mono text-2xl text-cyber-cyan mb-2">
+                     {isRecording ? formatTime(recordingTime) : '0:00'}
+                   </p>
+                   <p className="font-mono text-sm text-gray-400">
+                     {isRecording ? 'Recording...' : fileName ? `Recorded: ${fileName}` : 'Click to start recording'}
+                   </p>
+                 </div>
+                 {isRecording ? (
+                   <button
+                     type="button"
+                     onClick={stopRecording}
+                     className="flex items-center gap-2 px-6 py-3 bg-cyber-pink text-white font-bold text-lg hover:bg-cyber-pink/80 transition-colors rounded"
+                   >
+                     <Square size={20} /> STOP
+                   </button>
+                 ) : (
+                   <button
+                     type="button"
+                     onClick={startRecording}
+                     className="flex items-center gap-2 px-6 py-3 bg-cyber-cyan text-black font-bold text-lg hover:bg-cyber-cyan/80 transition-colors rounded"
+                   >
+                     <Mic size={20} /> RECORD
+                   </button>
+                 )}
+               </div>
+             </div>
+           </div>
+        )}
+
+        {/* Realtime Mode Section */}
+        {mode === 'realtime' && (
+           <div className="col-span-1 md:col-span-2">
+             <CyberLabel>Live Transcription</CyberLabel>
+             <div className="p-6 border border-cyber-pink rounded bg-cyber-panel">
+               <div className="mb-4">
+                 <div className="flex items-center justify-between mb-4">
+                   <p className="font-mono text-sm text-gray-400">
+                     {isRealtimeActive ? 'Transcribing in real-time...' : 'Click Start to begin live transcription'}
+                   </p>
+                   <div className="flex gap-2">
+                     {realtimeText && !isRealtimeActive && (
+                       <button
+                         type="button"
+                         onClick={onClearRealtime}
+                         className="px-3 py-2 bg-cyber-dim border border-cyber-dim text-gray-400 font-bold text-sm hover:text-red-400 transition-colors rounded"
+                       >
+                         CLEAR
+                       </button>
+                     )}
+                     {realtimeText && (
+                       <button
+                         type="button"
+                         onClick={() => navigator.clipboard.writeText(realtimeText)}
+                         className="px-3 py-2 bg-cyber-dim border border-cyber-dim text-gray-400 font-bold text-sm hover:text-cyber-cyan transition-colors rounded"
+                       >
+                         COPY
+                       </button>
+                     )}
+                     {isRealtimeActive ? (
+                       <button
+                         type="button"
+                         onClick={onStopRealtime}
+                         className="flex items-center gap-2 px-4 py-2 bg-cyber-pink text-white font-bold text-sm hover:bg-cyber-pink/80 transition-colors rounded"
+                       >
+                         <Square size={16} /> STOP
+                       </button>
+                     ) : (
+                       <button
+                         type="button"
+                         onClick={() => onStartRealtime?.(language || 'auto')}
+                         className="flex items-center gap-2 px-4 py-2 bg-cyber-pink text-white font-bold text-sm hover:bg-cyber-pink/80 transition-colors rounded animate-pulse"
+                       >
+                         <Radio size={16} /> START LIVE
+                       </button>
+                     )}
+                   </div>
+                 </div>
+                 <div 
+                   className="bg-cyber-black border border-cyber-dim rounded p-4 font-mono text-sm min-h-[100px] max-h-[200px] overflow-y-auto select-text cursor-text"
+                 >
+                   {realtimeText || <span className="text-gray-600 italic">Waiting for speech...</span>}
+                 </div>
+               </div>
+             </div>
+           </div>
+        )}
 
         {/* Task Selection */}
         <div>
@@ -298,6 +439,7 @@ export const TranscriptionForm: React.FC<TranscriptionFormProps> = ({ onSubmit, 
       </div>
 
       <div className="pt-4">
+        {mode !== 'realtime' && (
         <CyberButton 
           type="submit" 
           className="w-full py-4 text-xl disabled:opacity-50 disabled:cursor-not-allowed" 
@@ -305,6 +447,7 @@ export const TranscriptionForm: React.FC<TranscriptionFormProps> = ({ onSubmit, 
         >
           {isLoading ? <span className="animate-pulse">PROCESSING DATA STREAM...</span> : <><Zap className="inline mr-2" /> EXECUTE PROTOCOL</>}
         </CyberButton>
+        )}
       </div>
     </form>
   );

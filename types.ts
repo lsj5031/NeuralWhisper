@@ -52,3 +52,14 @@ export interface TaskStatus {
   error?: string;
   result?: TranscriptionResult;
 }
+
+// WebSocket real-time transcription types
+export interface RealtimeTranscriptionResult {
+  text: string;
+  final: boolean;
+  error?: string;
+}
+
+export type RealtimeTranscriptionCallback = (result: RealtimeTranscriptionResult) => void;
+
+export type TranscriptionMode = 'file' | 'record' | 'realtime';
