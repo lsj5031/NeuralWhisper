@@ -1,18 +1,20 @@
 import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import { ApiConfig, TranscriptionRequest, TranscriptionResult, StoredTask } from './types';
 import { submitTranscription, submitTranscriptionStream, checkConnection, fetchModels, RealtimeTranscriber } from './services/apiService';
+import { lazyWithRetry } from './services/lazyWithRetry';
 import { CyberCard, SectionHeader } from './components/CyberUI';
 import { TranscriptionForm } from './components/TranscriptionForm';
 // Lazy load heavy components
-const ResultModal = lazy(() => import('./components/TaskList').then(module => ({ default: module.ResultModal })));
-const TaskHistory = lazy(() => import('./components/TaskHistory').then(module => ({ default: module.TaskHistory })));
-const SettingsModal = lazy(() => import('./components/SettingsModal').then(module => ({ default: module.SettingsModal })));
+const ResultModal = lazyWithRetry(() => import('./components/TaskList').then(module => ({ default: module.ResultModal })));
+const TaskHistory = lazyWithRetry(() => import('./components/TaskHistory').then(module => ({ default: module.TaskHistory })));
+const SettingsModal = lazyWithRetry(() => import('./components/SettingsModal').then(module => ({ default: module.SettingsModal })));
 
 import { Terminal, Settings, Github, Disc } from 'lucide-react';
 
 const DEFAULT_CONFIG: ApiConfig = {
   baseUrl: localStorage.getItem('whisper_api_url') || 'http://localhost:8000',
   adminKey: localStorage.getItem('whisper_api_key') || '',
+  useStreaming: localStorage.getItem('whisper_use_streaming') !== 'false',
 };
 
 export default function App() {
@@ -23,7 +25,6 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [viewResult, setViewResult] = useState<TranscriptionResult | null>(null);
   const [notification, setNotification] = useState<{ msg: string, type: 'success' | 'error' } | null>(null);
-  const [useStreaming] = useState(true); // Enable SSE streaming for file uploads
   const [tasks, setTasks] = useState<StoredTask[]>([]);
   const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
 
@@ -71,6 +72,7 @@ export default function App() {
 
   const saveConfig = (newConfig: ApiConfig) => {
     localStorage.setItem('whisper_api_url', newConfig.baseUrl);
+    localStorage.setItem('whisper_use_streaming', String(newConfig.useStreaming));
     if (newConfig.adminKey) {
       localStorage.setItem('whisper_api_key', newConfig.adminKey);
     } else {
@@ -125,14 +127,14 @@ export default function App() {
     setNotification(null);
 
     // Initialize empty result for streaming (opens modal immediately)
-    if (useStreaming) {
+    if (config.useStreaming) {
       setViewResult({ text: '[STREAMING...] Initializing transcription...' });
     }
 
     try {
       let res: TranscriptionResult;
 
-      if (useStreaming) {
+      if (config.useStreaming) {
         res = await submitTranscriptionStream(config, req, (chunk) => {
           // Update result as chunks arrive (service handles accumulation)
           setViewResult(chunk);

@@ -24,7 +24,8 @@ const buildFormData = (data: TranscriptionRequest, stream: boolean): FormData =>
   const model = data.model || DEFAULT_MODEL;
   formData.append('model', model);
   
-  if (stream) {
+  // Always use the explicit stream parameter or fallback to true if requested by service call
+  if (stream || data.stream !== false) {
     formData.append('stream', 'true');
   }
   
@@ -65,27 +66,40 @@ export const fetchModels = async (config: ApiConfig): Promise<string[]> => {
     clearTimeout(timeoutId);
     
     if (!res.ok) {
-      console.error('Failed to fetch models:', res.status, res.statusText);
-      return [];
+      console.warn('Failed to fetch models from /v1/models, falling back to default:', res.status, res.statusText);
+      // Fallback: don't error out, just return default model
+      return [DEFAULT_MODEL];
     }
     
     const data = await res.json();
     // Assuming the API returns { data: [{id: "model-name"}, ...] }
     const models = data.data?.map((m: any) => m.id) || [];
     
+    // If no models returned (or format wrong), fallback
+    if (models.length === 0) {
+      return [DEFAULT_MODEL];
+    }
+    
     console.log('📦 Available models:', models.length, 'models fetched');
     return models;
   } catch (e: any) {
-    console.error('❌ Failed to fetch models:', {
+    console.warn('⚠️ Failed to fetch models (network error), using default:', {
       message: e.message,
       name: e.name,
     });
-    return [];
+    // Fallback on network error too
+    return [DEFAULT_MODEL];
   }
 };
 
 export const checkConnection = async (config: ApiConfig): Promise<boolean> => {
   try {
+    // We check connection by hitting the models endpoint
+    // But if that fails (e.g. 404), we should try the transcription endpoint with a dummy OPTIONS/HEAD or
+    // just assume it works if we can reach the server.
+    // However, the most reliable test for "is this a Whisper API" is usually /v1/models.
+    // If user says /v1/models is broken but transcription works, we should rely on a simpler check.
+    
     // In development: use relative URL (proxied through Vite)
     // In production: use absolute URL if configured
     const isProduction = import.meta.env.PROD;
@@ -109,20 +123,25 @@ export const checkConnection = async (config: ApiConfig): Promise<boolean> => {
       status: res.status,
       ok: res.ok,
       statusText: res.statusText,
-      contentLength: res.headers.get('content-length'),
-      contentType: res.headers.get('content-type'),
     });
     
-    // Server responded (even with error is still a connection)
-    return res.ok || res.status === 401; // 401 means auth required but connected
+    // If /v1/models works, great.
+    if (res.ok) return true;
+    
+    // If 404 (endpoint doesn't exist) or 405 (method not allowed), 
+    // it might still be a valid server that just doesn't implement model listing.
+    // We consider it "connected" if we got ANY response from the server (not a network error).
+    if (res.status === 404 || res.status === 405 || res.status === 401 || res.status === 403) {
+      console.log('📡 Server reachable but models endpoint returned error (likely supported but restricted/hidden)');
+      return true;
+    }
+    
+    return false;
   } catch (e: any) {
     console.error('❌ Connection test failed:', {
       message: e.message,
       name: e.name,
     });
-    if (e.name === 'AbortError') {
-      console.error('   → Request timed out (10s) - server may not be closing response properly');
-    }
     return false;
   }
 };

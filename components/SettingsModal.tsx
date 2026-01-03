@@ -15,16 +15,22 @@ interface SettingsModalProps {
 export const SettingsModal: React.FC<SettingsModalProps> = ({ currentConfig, onSave, isOpen, onClose, forceOpen }) => {
   const [baseUrl, setBaseUrl] = useState(currentConfig.baseUrl);
   const [adminKey, setAdminKey] = useState(currentConfig.adminKey || '');
+  const [useStreaming, setUseStreaming] = useState(currentConfig.useStreaming ?? true);
   const [status, setStatus] = useState<'idle' | 'checking' | 'success' | 'error'>('idle');
 
   useEffect(() => {
     setBaseUrl(currentConfig.baseUrl);
     setAdminKey(currentConfig.adminKey || '');
+    setUseStreaming(currentConfig.useStreaming ?? true);
   }, [currentConfig, isOpen]);
 
   const handleTestAndSave = async () => {
     setStatus('checking');
-    const configToTest = { baseUrl, adminKey: adminKey || undefined };
+    const configToTest = { 
+      baseUrl, 
+      adminKey: adminKey || undefined,
+      useStreaming
+    };
     
     // Quick validation
     if (!baseUrl) {
@@ -79,6 +85,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentConfig, onS
                             value={adminKey}
                             onChange={(e) => setAdminKey(e.target.value)}
                         />
+                    </div>
+
+                    <div className="flex items-center gap-3 p-3 bg-cyber-panel/50 border border-cyber-dim">
+                        <input
+                            id="use-streaming"
+                            type="checkbox"
+                            className="w-4 h-4 accent-cyber-cyan bg-cyber-black border-cyber-dim rounded focus:ring-cyber-cyan"
+                            checked={useStreaming}
+                            onChange={(e) => setUseStreaming(e.target.checked)}
+                        />
+                        <div>
+                            <CyberLabel htmlFor="use-streaming" className="mb-0 cursor-pointer">Enable SSE Streaming</CyberLabel>
+                            <p className="text-[10px] text-gray-500 font-mono">Process results in real-time as they arrive</p>
+                        </div>
                     </div>
                 </div>
 

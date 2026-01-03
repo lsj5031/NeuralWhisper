@@ -1,6 +1,7 @@
 export interface ApiConfig {
   baseUrl: string;
   adminKey?: string;
+  useStreaming: boolean;
 }
 
 export interface TranscriptionRequest {
