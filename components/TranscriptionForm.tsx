@@ -3,7 +3,7 @@ import { CyberButton, CyberLabel, CyberSelect, CyberCard } from './CyberUI';
 import { TranscriptionRequest, TranscriptionMode } from '../types';
 import { UploadCloud, Zap, Mic, Square, Radio } from 'lucide-react';
 
-const DEFAULT_MODEL = 'Systran/faster-distil-whisper-large-v3';
+const DEFAULT_MODEL = 'glm-nano-2512';
 
 interface TranscriptionFormProps {
   onSubmit: (data: TranscriptionRequest) => void;
@@ -315,7 +315,8 @@ export const TranscriptionForm: React.FC<TranscriptionFormProps> = ({
            </div>
         )}
 
-        {/* Task Selection */}
+        {/* Task Selection - Hidden as not supported by current server */
+        /*
         <div>
           <CyberLabel>Operation Mode</CyberLabel>
           <div className="flex gap-4">
@@ -335,6 +336,7 @@ export const TranscriptionForm: React.FC<TranscriptionFormProps> = ({
             </button>
           </div>
         </div>
+        */}
 
         {/* Language Selection */}
         <div>
@@ -395,33 +397,15 @@ export const TranscriptionForm: React.FC<TranscriptionFormProps> = ({
               ))
             ) : (
               <>
-                <option value="" disabled>Loading models...</option>
-                <optgroup label="Popular (Systran) - Default">
-                  <option value="Systran/faster-distil-whisper-large-v3">Distil Whisper Large V3 (Fastest)</option>
-                  <option value="Systran/faster-whisper-large-v3">Whisper Large V3 (Accurate)</option>
-                  <option value="Systran/faster-whisper-large-v2">Whisper Large V2</option>
-                  <option value="Systran/faster-whisper-medium">Whisper Medium</option>
-                  <option value="Systran/faster-whisper-small">Whisper Small</option>
-                  <option value="Systran/faster-whisper-base">Whisper Base</option>
-                  <option value="Systran/faster-whisper-tiny">Whisper Tiny</option>
-                </optgroup>
-                <optgroup label="English-Only (Systran)">
-                  <option value="Systran/faster-whisper-medium.en">Whisper Medium.en</option>
-                  <option value="Systran/faster-whisper-small.en">Whisper Small.en</option>
-                  <option value="Systran/faster-whisper-base.en">Whisper Base.en</option>
-                  <option value="Systran/faster-whisper-tiny.en">Whisper Tiny.en</option>
-                </optgroup>
-                <optgroup label="Alternative Implementations">
-                  <option value="deepdml/faster-whisper-large-v3-turbo-ct2">Large V3 Turbo (Deepdml)</option>
-                  <option value="deepdml/faster-distil-whisper-large-v3.5">Distil V3.5 (Deepdml)</option>
-                </optgroup>
+                <option value="glm-nano-2512">GLM-ASR-Nano-2512 (Default)</option>
               </>
             )}
           </CyberSelect>
           <p className="text-xs text-gray-500 mt-2">{availableModels.length > 0 ? `${availableModels.length} models available on server` : 'Connecting to server...'}</p>
         </div>
 
-        {/* Temperature */}
+        {/* Temperature - Hidden as not supported by current server */
+        /*
         <div className="col-span-1 md:col-span-2">
           <CyberLabel htmlFor="temperature">Temperature: {temperature.toFixed(2)}</CyberLabel>
           <input
@@ -436,6 +420,7 @@ export const TranscriptionForm: React.FC<TranscriptionFormProps> = ({
           />
           <p className="text-xs text-gray-500 mt-2">Higher values = more creative, lower = more deterministic</p>
         </div>
+        */}
       </div>
 
       <div className="pt-4">

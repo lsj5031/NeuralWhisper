@@ -1,6 +1,6 @@
 import { ApiConfig, TranscriptionRequest, TranscriptionResult, TranscriptionStreamCallback, RealtimeTranscriptionCallback } from '../types';
 
-const DEFAULT_MODEL = 'Systran/faster-distil-whisper-large-v3';
+const DEFAULT_MODEL = 'glm-nano-2512';
 
 const getHeaders = (config: ApiConfig): HeadersInit => {
   const headers: HeadersInit = {};
@@ -33,13 +33,9 @@ const buildFormData = (data: TranscriptionRequest, stream: boolean): FormData =>
     formData.append('language', data.language);
   }
   
-  if (data.task === 'translate') {
-    formData.append('task', 'translate');
-  }
+  // Removed task/translate check as it's not supported by GLM-ASR server
   
-  if (data.temperature !== undefined && data.temperature !== 0) {
-    formData.append('temperature', data.temperature.toString());
-  }
+  // Removed temperature as it's not supported by GLM-ASR server
   
   return formData;
 };
@@ -429,26 +425,56 @@ export class RealtimeTranscriber {
       this.ws.onerror = () => reject(new Error('WebSocket connection failed'));
     });
 
-    // Start audio capture at 16kHz
+    // Start audio capture
+    // Note: We don't force sampleRate here because browser support varies
+    // Instead we resample if needed
     this.mediaStream = await navigator.mediaDevices.getUserMedia({
       audio: {
-        sampleRate: 16000,
         channelCount: 1,
         echoCancellation: true,
         noiseSuppression: true,
       },
     });
 
-    this.audioContext = new AudioContext({ sampleRate: 16000 });
+    // Create AudioContext with native sample rate
+    this.audioContext = new AudioContext();
     this.source = this.audioContext.createMediaStreamSource(this.mediaStream);
 
-    // Process audio in chunks (~100ms at 16kHz = 1600 samples = 3200 bytes)
+    // Process audio in chunks
+    // We need to resample to 16kHz for the server
+    const targetSampleRate = 16000;
+    
+    // Use ScriptProcessor for wide compatibility, though AudioWorklet is modern preference
     this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
     this.lastAudioTime = Date.now();
     
     this.processor.onaudioprocess = (e) => {
       if (this.ws?.readyState === WebSocket.OPEN) {
-        const float32 = e.inputBuffer.getChannelData(0);
+        const inputData = e.inputBuffer.getChannelData(0);
+        const inputSampleRate = e.inputBuffer.sampleRate;
+        
+        // Resample to 16kHz if needed
+        let outputData: Float32Array;
+        
+        if (inputSampleRate !== targetSampleRate) {
+          // Simple linear interpolation resampling
+          const ratio = inputSampleRate / targetSampleRate;
+          const outputLength = Math.floor(inputData.length / ratio);
+          outputData = new Float32Array(outputLength);
+          
+          for (let i = 0; i < outputLength; i++) {
+            const inputIndex = i * ratio;
+            const index1 = Math.floor(inputIndex);
+            const index2 = Math.min(index1 + 1, inputData.length - 1);
+            const fraction = inputIndex - index1;
+            
+            outputData[i] = inputData[index1] * (1 - fraction) + inputData[index2] * fraction;
+          }
+        } else {
+          outputData = inputData;
+        }
+        
+        const float32 = outputData;
         
         // Calculate RMS (Root Mean Square) energy for better VAD
         let sumSquares = 0;
